@@ -20,9 +20,10 @@ namespace CosmosFeedTestsConsole
                 var cosmosClient = new CosmosClient(config.Endpoint!, config.AccessKey!);
                 var container = cosmosClient.GetDatabase(config.Database!).GetContainer(config.Container);
                 var item = new TelemetryItem();
-                var r = await container.CreateItemAsync(item);
+                var itemResponse = await container.CreateItemAsync(item);
+                var ru = itemResponse.Headers.RequestCharge;
 
-                Console.WriteLine("Hello World!");
+                Console.WriteLine($"RU:  {ru}");
             }
         }
 
