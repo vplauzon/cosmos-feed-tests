@@ -25,7 +25,40 @@ namespace CosmosFeedTestsConsole
                 //await WriteOneItemAsync(container);
                 //await WriteManyItemsAsync(container);
                 //await WriteManyItemsInSamePartitionAsync(container);
-                await ReadContainerAsync(container);
+                //await ReadContainerAsync(container);
+                await ReadByPartitionAsync(container);
+            }
+        }
+
+        private static async Task ReadByPartitionAsync(Container container)
+        {
+            var ranges = await container.GetFeedRangesAsync();
+
+            Console.WriteLine($"{ranges.Count} physical partitions");
+
+            foreach (var range in ranges)
+            {
+                var iteratorForTheEntireContainer = container.GetChangeFeedStreamIterator(
+                    ChangeFeedStartFrom.Beginning(range),
+                    ChangeFeedMode.Incremental);
+                var response = await iteratorForTheEntireContainer.ReadNextAsync();
+
+                if (response.StatusCode == HttpStatusCode.NotModified)
+                {
+                    Console.WriteLine($"No new changes");
+                }
+                else
+                {
+                    using (var reader = new StreamReader(response.Content))
+                    {
+                        var text = await reader.ReadToEndAsync();
+                        var batch = JsonSerializer.Deserialize<DocumentBatch>(text);
+                        var rus = response.Headers.RequestCharge;
+                        var avgRus = rus / batch!._count;
+
+                        Console.WriteLine($"{batch!._count} documents read, {rus} total RUs, {avgRus} Average RUs");
+                    }
+                }
             }
         }
 
