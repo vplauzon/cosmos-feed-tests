@@ -14,6 +14,7 @@ namespace CosmosFeedTestsConsole
         [JsonProperty(PropertyName = "id")]
         public string Id { get; set; } = GenerateRandomString(32);
 
+        [JsonProperty(PropertyName = "part")]
         public string Part { get; set; } = GenerateRandomString(5);
 
         public string DeviceId { get; set; } = GenerateRandomString(16);
