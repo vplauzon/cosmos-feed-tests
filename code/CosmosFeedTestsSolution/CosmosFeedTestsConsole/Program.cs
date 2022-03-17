@@ -209,10 +209,6 @@ namespace CosmosFeedTestsConsole
         {
             var configPath = args[0];
             var configContent = await File.ReadAllTextAsync(configPath);
-
-            Console.WriteLine("Loading YAML configuration:");
-            Console.WriteLine(configContent);
-
             var deserializer = new DeserializerBuilder()
                 .WithNamingConvention(CamelCaseNamingConvention.Instance)
                 .Build();
