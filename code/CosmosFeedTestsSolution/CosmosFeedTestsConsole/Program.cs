@@ -1,6 +1,7 @@
 ﻿using CosmosFeedTestsConsole.Config;
 using Microsoft.Azure.Cosmos;
 using System;
+using System.Collections.Immutable;
 using System.Net;
 using System.Text.Json;
 using YamlDotNet.Serialization;
@@ -26,8 +27,74 @@ namespace CosmosFeedTestsConsole
                 //await WriteManyItemsAsync(container);
                 //await WriteManyItemsInSamePartitionAsync(container);
                 //await ReadContainerAsync(container);
-                await ReadByPartitionAsync(container);
+                //await ReadByPartitionAsync(container);
+                await RunScaleTestsAsync(config, container);
             }
+        }
+
+        private static async Task RunScaleTestsAsync(RootConfiguration config, Container container)
+        {
+            var sendTask = RunSendScaleTestAsync(config, container);
+            var receiveTask = RunReceiveScaleTestAsync(config, container);
+
+            await Task.WhenAll(sendTask, receiveTask);
+        }
+
+        private static async Task RunSendScaleTestAsync(RootConfiguration config, Container container)
+        {
+            if (config.SendPerSecond > 0)
+            {
+                var totalItemsWritten = (long)0;
+
+                Console.WriteLine($"Sending documents to Cosmos DB:  {config.SendPerSecond} "
+                    + $"items per second, reporting every {config.ReportFrequency} seconds");
+
+                //  Warm up
+                await container.CreateItemAsync(new TelemetryItem());
+                ++totalItemsWritten;
+                while (true)
+                {
+                    var cycleRus = (double)0;
+                    var cycleItemsWritten = (long)0;
+
+                    for (int second = 0; second != config.ReportFrequency; ++second)
+                    {
+                        var secondStart = DateTime.Now;
+                        var itemTasks = Enumerable.Range(0, config.SendPerSecond)
+                            .Select(i => new TelemetryItem())
+                            .Select(item => container.CreateItemAsync(item))
+                            .ToImmutableArray();
+
+                        await Task.WhenAll(itemTasks);
+
+                        var rus = itemTasks
+                            .Select(t => t.Result.Headers.RequestCharge)
+                            .Sum();
+
+                        cycleRus += rus;
+                        cycleItemsWritten += itemTasks.Length;
+                        totalItemsWritten += itemTasks.Length;
+
+                        var elapsed = DateTime.Now.Subtract(secondStart);
+                        var pauseTime = TimeSpan.FromSeconds(1).Subtract(elapsed);
+
+                        if (pauseTime < TimeSpan.Zero)
+                        {
+                            throw new InvalidOperationException("Can't send documents fast enough!");
+                        }
+                        await Task.Delay(pauseTime);
+                    }
+
+                    Console.WriteLine($"Sent {cycleItemsWritten} documents in {config.ReportFrequency} seconds ; "
+                        + $"total {cycleRus} RUs => {cycleRus / config.ReportFrequency} RUs / s, "
+                        + $"{cycleRus / cycleItemsWritten} RUs / document");
+                }
+            }
+        }
+
+        private static Task RunReceiveScaleTestAsync(RootConfiguration config, Container container)
+        {
+            return Task.CompletedTask;
         }
 
         private static async Task ReadByPartitionAsync(Container container)

@@ -15,5 +15,11 @@ namespace CosmosFeedTestsConsole.Config
         public string? Database { get; set; }
         
         public string? Container { get; set; }
+
+        public int ReportFrequency { get; set; } = 5;
+
+        public int SendPerSecond { get; set; } = 0;
+
+        public int ReceivePerSecond { get; set; } = 0;
     }
 }
