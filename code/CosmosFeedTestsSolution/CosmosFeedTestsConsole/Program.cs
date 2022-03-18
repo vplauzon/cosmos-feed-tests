@@ -13,6 +13,8 @@ namespace CosmosFeedTestsConsole
     {
         public static async Task Main(string[] args)
         {
+            ServicePointManager.DefaultConnectionLimit = 25;
+
             if (args.Length < 1)
             {
                 Console.Error.WriteLine("You have to call this exec with a parameter pointing to the config file");
@@ -92,9 +94,88 @@ namespace CosmosFeedTestsConsole
             }
         }
 
-        private static Task RunReceiveScaleTestAsync(RootConfiguration config, Container container)
+        private static async Task RunReceiveScaleTestAsync(RootConfiguration config, Container container)
         {
-            return Task.CompletedTask;
+            if (config.ReceivePerSecond > 0)
+            {
+                var totalItemsRead = (long)0;
+                var ranges = await container.GetFeedRangesAsync();
+                var partitionIterators = ranges
+                    .Select(r => container.GetChangeFeedStreamIterator(
+                        ChangeFeedStartFrom.Beginning(r),
+                        ChangeFeedMode.Incremental))
+                    .ToImmutableArray();
+
+                Console.WriteLine($"Receiving documents to Cosmos DB:  {config.ReceivePerSecond} "
+                    + $"items per second, reporting every {config.ReportFrequency} seconds "
+                    + $"{ranges.Count} physical partitions");
+
+                //  Warm up
+                await Task.WhenAll(partitionIterators.Select(pi => pi.ReadNextAsync()));
+                while (true)
+                {
+                    var cycleRus = (double)0;
+                    var cycleItemsRead = (long)0;
+
+                    for (int second = 0; second != config.ReportFrequency; ++second)
+                    {
+                        var secondStart = DateTime.Now;
+                        var partitionTasks = partitionIterators
+                            .Select(pi => pi.ReadNextAsync())
+                            .ToImmutableArray();
+
+                        await Task.WhenAll(partitionTasks);
+
+                        var rus = partitionTasks
+                            .Select(t => t.Result.Headers.RequestCharge)
+                            .Sum();
+                        var documentCountTasks = partitionTasks
+                            .Select(t => GetDocumentCountAsync(t.Result))
+                            .ToImmutableArray();
+
+                        await Task.WhenAll(documentCountTasks);
+
+                        var documentCount = documentCountTasks
+                            .Select(t => t.Result)
+                            .Sum();
+
+                        cycleRus += rus;
+                        cycleItemsRead += documentCount;
+                        totalItemsRead += documentCount;
+
+                        var elapsed = DateTime.Now.Subtract(secondStart);
+                        var pauseTime = TimeSpan.FromSeconds(1).Subtract(elapsed);
+
+                        if (pauseTime < TimeSpan.Zero)
+                        {
+                            throw new InvalidOperationException("Can't receive documents fast enough!");
+                        }
+                        await Task.Delay(pauseTime);
+                    }
+
+                    Console.WriteLine($"Received {cycleItemsRead} documents in {config.ReportFrequency} seconds ; "
+                        + $"total {cycleRus} RUs => {cycleRus / config.ReportFrequency} RUs / s, "
+                        + $"{cycleRus / cycleItemsRead} RUs / document");
+                }
+            }
+        }
+
+        private static async Task<int> GetDocumentCountAsync(ResponseMessage response)
+        {
+            if (response.StatusCode != HttpStatusCode.OK)
+            {
+                return 0;
+            }
+            else
+            {
+                using (var reader = new StreamReader(response.Content))
+                {
+                    var text = await reader.ReadToEndAsync();
+                    var batch = JsonSerializer.Deserialize<DocumentBatch>(text);
+
+                    return batch!._count;
+                }
+            }
         }
 
         private static async Task ReadByPartitionAsync(Container container)
@@ -105,10 +186,10 @@ namespace CosmosFeedTestsConsole
 
             foreach (var range in ranges)
             {
-                var iteratorForTheEntireContainer = container.GetChangeFeedStreamIterator(
+                var partitionIterator = container.GetChangeFeedStreamIterator(
                     ChangeFeedStartFrom.Beginning(range),
                     ChangeFeedMode.Incremental);
-                var response = await iteratorForTheEntireContainer.ReadNextAsync();
+                var response = await partitionIterator.ReadNextAsync();
 
                 if (response.StatusCode == HttpStatusCode.NotModified)
                 {
