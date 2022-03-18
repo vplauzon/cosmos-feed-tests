@@ -120,28 +120,34 @@ namespace CosmosFeedTestsConsole
                     for (int second = 0; second != config.ReportFrequency; ++second)
                     {
                         var secondStart = DateTime.Now;
-                        var partitionTasks = partitionIterators
-                            .Select(pi => pi.ReadNextAsync())
-                            .ToImmutableArray();
+                        var secondDocumentCount = 0;
 
-                        await Task.WhenAll(partitionTasks);
+                        while (secondDocumentCount < config.ReceivePerSecond)
+                        {
+                            var partitionReadTasks = partitionIterators
+                                .Select(pi => pi.ReadNextAsync())
+                                .ToImmutableArray();
 
-                        var rus = partitionTasks
-                            .Select(t => t.Result.Headers.RequestCharge)
-                            .Sum();
-                        var documentCountTasks = partitionTasks
-                            .Select(t => GetDocumentCountAsync(t.Result))
-                            .ToImmutableArray();
+                            await Task.WhenAll(partitionReadTasks);
 
-                        await Task.WhenAll(documentCountTasks);
+                            var rus = partitionReadTasks
+                                .Select(t => t.Result.Headers.RequestCharge)
+                                .Sum();
+                            var documentCountTasks = partitionReadTasks
+                                .Select(t => GetDocumentCountAsync(t.Result))
+                                .ToImmutableArray();
 
-                        var documentCount = documentCountTasks
-                            .Select(t => t.Result)
-                            .Sum();
+                            await Task.WhenAll(documentCountTasks);
 
-                        cycleRus += rus;
-                        cycleItemsRead += documentCount;
-                        totalItemsRead += documentCount;
+                            var documentCount = documentCountTasks
+                                .Select(t => t.Result)
+                                .Sum();
+
+                            cycleRus += rus;
+                            secondDocumentCount += documentCount;
+                            cycleItemsRead += documentCount;
+                            totalItemsRead += documentCount;
+                        }
 
                         var elapsed = DateTime.Now.Subtract(secondStart);
                         var pauseTime = TimeSpan.FromSeconds(1).Subtract(elapsed);
