@@ -28,9 +28,9 @@ namespace CosmosFeedTestsConsole
                 //await WriteOneItemAsync(container);
                 //await WriteManyItemsAsync(container);
                 //await WriteManyItemsInSamePartitionAsync(container);
-                //await ReadContainerAsync(container);
+                await ReadContainerAsync(container, ChangeFeedMode.FullFidelity);
                 //await ReadByPartitionAsync(container);
-                await RunScaleTestsAsync(config, container);
+                //await RunScaleTestsAsync(config, container);
             }
         }
 
@@ -216,11 +216,13 @@ namespace CosmosFeedTestsConsole
             }
         }
 
-        private static async Task ReadContainerAsync(Container container)
+        private static async Task ReadContainerAsync(Container container, ChangeFeedMode mode)
         {
             var iteratorForTheEntireContainer = container.GetChangeFeedStreamIterator(
-                ChangeFeedStartFrom.Beginning(),
-                ChangeFeedMode.Incremental);
+                //ChangeFeedStartFrom.Beginning(),
+                //ChangeFeedStartFrom.Time(DateTime.UtcNow.Subtract(TimeSpan.FromDays(1))),
+                ChangeFeedStartFrom.Now(),
+                mode);
             var response = await iteratorForTheEntireContainer.ReadNextAsync();
 
             if (response.StatusCode == HttpStatusCode.NotModified)
